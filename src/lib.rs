@@ -60,12 +60,8 @@ pub enum FromServer {
 
 // TODO tidy this lot up with traits?
 impl Message<FromServer> {
-    // fn to_frame<'a>(&'a self) -> Frame<'a> {
-    //     unimplemented!()
-    // }
-
     // TODO make this undead
-    fn from_frame<'a>(frame: Frame<'a>) -> Result<Message<FromServer>> {
+    fn from_frame(frame: Frame) -> Result<Message<FromServer>> {
         frame.to_server_msg()
     }
 }
@@ -127,12 +123,12 @@ pub enum AckMode {
 }
 
 impl Message<ToServer> {
-    fn to_frame<'a>(&'a self) -> Frame<'a> {
+    fn to_frame(&self) -> Frame<'_> {
         self.content.to_frame()
     }
 
     #[allow(dead_code)]
-    fn from_frame<'a>(frame: Frame<'a>) -> Result<Message<ToServer>> {
+    fn from_frame(frame: Frame) -> Result<Message<ToServer>> {
         frame.to_client_msg()
     }
 }

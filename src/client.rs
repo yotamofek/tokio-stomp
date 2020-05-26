@@ -39,9 +39,9 @@ async fn client_handshake(
     let connect = Message {
         content: ToServer::Connect {
             accept_version: "1.2".into(),
-            host: host,
-            login: login,
-            passcode: passcode,
+            host,
+            login,
+            passcode,
             heartbeat: None,
         },
         extra_headers: vec![],
@@ -83,7 +83,7 @@ impl Decoder for ClientCodec {
             Err(e) => failure::bail!("Parse failed: {:?}", e),
         };
         src.advance(offset);
-        item.map(|v| Some(v))
+        item.map(Some)
     }
 }
 

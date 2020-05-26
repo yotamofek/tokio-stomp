@@ -5,6 +5,8 @@ use std::borrow::Cow;
 
 use crate::{AckMode, FromServer, Message, Result, ToServer};
 
+type OptionalCowBytes<'a> = Option<Cow<'a, [u8]>>;
+
 #[derive(Debug)]
 pub(crate) struct Frame<'a> {
     command: &'a [u8],
@@ -17,7 +19,7 @@ pub(crate) struct Frame<'a> {
 impl<'a> Frame<'a> {
     pub(crate) fn new(
         command: &'a [u8],
-        headers: &[(&'a [u8], Option<Cow<'a, [u8]>>)],
+        headers: &[(&'a [u8], OptionalCowBytes<'a>)],
         body: Option<&'a [u8]>,
     ) -> Frame<'a> {
         let headers = headers
@@ -215,7 +217,7 @@ impl<'a> Frame<'a> {
                 Subscribe {
                     destination: eh(h, "destination")?,
                     id: eh(h, "id")?,
-                    ack: match fh(h, "ack").as_ref().map(|s| s.as_str()) {
+                    ack: match fh(h, "ack").as_deref() {
                         Some("auto") => Some(AckMode::Auto),
                         Some("client") => Some(AckMode::Client),
                         Some("client-individual") => Some(AckMode::ClientIndividual),
@@ -335,7 +337,7 @@ impl<'a> Frame<'a> {
     }
 }
 
-fn opt_str_to_bytes<'a>(s: &'a Option<String>) -> Option<Cow<'a, [u8]>> {
+fn opt_str_to_bytes(s: &Option<String>) -> Option<Cow<'_, [u8]>> {
     s.as_ref().map(|v| Cow::Borrowed(v.as_bytes()))
 }
 
@@ -351,7 +353,7 @@ fn parse_heartbeat(hb: &str) -> Result<(u32, u32)> {
 }
 
 impl ToServer {
-    pub(crate) fn to_frame<'a>(&'a self) -> Frame<'a> {
+    pub(crate) fn to_frame(&self) -> Frame {
         use self::opt_str_to_bytes as sb;
         use Cow::*;
         use ToServer::*;
