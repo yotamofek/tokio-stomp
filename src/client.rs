@@ -3,11 +3,12 @@ use std::net::ToSocketAddrs;
 use bytes::{Buf, BytesMut};
 use futures::prelude::*;
 use futures::sink::SinkExt;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use tokio::net::TcpStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
-type ClientTransport = Framed<TcpStream, ClientCodec>;
+type ClientTransport<S> = Framed<S, ClientCodec>;
 
 use crate::frame;
 use crate::{FromServer, Message, Result, ToServer};
@@ -30,12 +31,31 @@ pub async fn connect(
     Ok(transport)
 }
 
-async fn client_handshake(
-    transport: &mut ClientTransport,
+/// Connect to a STOMP server via TCP, including the connection handshake.
+/// If successful, returns a tuple of a message stream and a sender,
+/// which may be used to receive and send messages respectively.
+pub async fn connect_stream<S>(
+    stream: S,
     host: String,
     login: Option<String>,
     passcode: Option<String>,
-) -> Result<()> {
+) -> Result<
+    impl Stream<Item = Result<Message<FromServer>>> + Sink<Message<ToServer>, Error = failure::Error>,
+> where S: AsyncRead + AsyncWrite + Sized + Unpin {
+    let mut transport = ClientCodec.framed(stream);
+    client_handshake(&mut transport, host, login, passcode).await?;
+    Ok(transport)
+}
+
+async fn client_handshake<S>(
+    transport: &mut ClientTransport<S>,
+    host: String,
+    login: Option<String>,
+    passcode: Option<String>,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Sized + Unpin,
+{
     let connect = Message {
         content: ToServer::Connect {
             accept_version: "1.2".into(),
