@@ -66,6 +66,64 @@ impl Message<FromServer> {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum ToServerType {
+    Connect,
+    Send,
+    Subscribe,
+    Unsubscribe,
+    Ack,
+    Nack,
+    Begin,
+    Commit,
+    Abort,
+    Disconnect,
+}
+
+struct AsciiCaseIgnore<'a>(&'a [u8]);
+
+impl<'a, 'b, R: AsRef<[u8]>> PartialEq<R> for AsciiCaseIgnore<'a> {
+    fn eq(&self, other: &R) -> bool {
+        self.0.eq_ignore_ascii_case(other.as_ref())
+    }
+}
+
+impl ToServerType {
+    fn parse_from_bytes(b: &[u8]) -> Option<Self> {
+        match AsciiCaseIgnore(b) {
+            v if v == b"stomp" || v == b"connect" => Some(Self::Connect),
+            v if v == b"send" => Some(Self::Send),
+            v if v == b"subscribe" => Some(Self::Subscribe),
+            v if v == b"unsubscribe" => Some(Self::Unsubscribe),
+            v if v == b"ack" => Some(Self::Ack),
+            v if v == b"nack" => Some(Self::Nack),
+            v if v == b"begin" => Some(Self::Begin),
+            v if v == b"commit" => Some(Self::Commit),
+            v if v == b"abort" => Some(Self::Abort),
+            v if v == b"disconnect" => Some(Self::Disconnect),
+            _ => None,
+        }
+    }
+
+    fn expected_headers(&self) -> &'static [&'static [u8]] {
+        match self {
+            Self::Connect => &[
+                b"accept-version",
+                b"host",
+                b"login",
+                b"passcode",
+                b"heart-beat",
+            ],
+            Self::Send => &[b"destination", b"transaction"],
+            Self::Subscribe => &[b"destination", b"id", b"ack"],
+            Self::Unsubscribe => &[b"id"],
+            Self::Ack | Self::Nack => &[b"id", b"transaction"],
+            Self::Begin | Self::Commit | Self::Abort => &[b"transaction"],
+            Self::Disconnect => &[b"receipt"],
+        }
+    }
+}
+
 /// A STOMP message sent by the client.
 /// See the [Spec](https://stomp.github.io/stomp-specification-1.2.html) for more information
 #[derive(Debug, Clone)]

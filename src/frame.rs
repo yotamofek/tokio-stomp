@@ -3,7 +3,7 @@ use failure::{bail, format_err};
 
 use std::borrow::Cow;
 
-use crate::{AckMode, FromServer, Message, Result, ToServer};
+use crate::{AckMode, FromServer, Message, Result, ToServer, ToServerType};
 
 type OptionalCowBytes<'a> = Option<Cow<'a, [u8]>>;
 
@@ -173,21 +173,21 @@ impl<'a> Frame<'a> {
         use self::fetch_header as fh;
         use ToServer::*;
         let h = &self.headers;
-        let expect_keys: &[&[u8]];
-        let content = match self.command {
-            b"STOMP" | b"CONNECT" | b"stomp" | b"connect" => {
-                expect_keys = &[
-                    b"accept-version",
-                    b"host",
-                    b"login",
-                    b"passcode",
-                    b"heart-beat",
-                ];
-                let heartbeat = if let Some(hb) = fh(h, "heart-beat") {
-                    Some(parse_heartbeat(&hb)?)
-                } else {
-                    None
-                };
+
+        let command_type = match ToServerType::parse_from_bytes(self.command) {
+            Some(command_type) => command_type,
+            None => bail!(
+                "Frame not recognized: {:?}",
+                String::from_utf8_lossy(self.command)
+            ),
+        };
+
+        let expected_headers = command_type.expected_headers();
+
+        let content = match command_type {
+            ToServerType::Connect => {
+                let heartbeat = fh(h, "heart-beat").map(parse_heartbeat).transpose()?;
+
                 Connect {
                     accept_version: eh(h, "accept-version")?,
                     host: eh(h, "host")?,
@@ -196,22 +196,19 @@ impl<'a> Frame<'a> {
                     heartbeat,
                 }
             }
-            b"DISCONNECT" | b"disconnect" => {
-                expect_keys = &[b"receipt"];
+            ToServerType::Disconnect => {
                 Disconnect {
                     receipt: fh(h, "receipt"),
                 }
             }
-            b"SEND" | b"send" => {
-                expect_keys = &[b"destination", b"transaction"];
+            ToServerType::Send => {
                 Send {
                     destination: eh(h, "destination")?,
                     transaction: fh(h, "transaction"),
                     body: self.body.map(|v| v.to_vec()),
                 }
             }
-            b"SUBSCRIBE" | b"subscribe" => {
-                expect_keys = &[b"destination", b"id", b"ack"];
+            ToServerType::Subscribe => {
                 Subscribe {
                     destination: eh(h, "destination")?,
                     id: eh(h, "id")?,
@@ -224,48 +221,42 @@ impl<'a> Frame<'a> {
                     },
                 }
             }
-            b"UNSUBSCRIBE" | b"unsubscribe" => {
-                expect_keys = &[b"id"];
+            ToServerType::Unsubscribe => {
                 Unsubscribe { id: eh(h, "id")? }
             }
-            b"ACK" | b"ack" => {
-                expect_keys = &[b"id", b"transaction"];
+            ToServerType::Ack => {
                 Ack {
                     id: eh(h, "id")?,
                     transaction: fh(h, "transaction"),
                 }
             }
-            b"NACK" | b"nack" => {
-                expect_keys = &[b"id", b"transaction"];
+            ToServerType::Nack => {
                 Nack {
                     id: eh(h, "id")?,
                     transaction: fh(h, "transaction"),
                 }
             }
-            b"BEGIN" | b"begin" => {
-                expect_keys = &[b"transaction"];
+            ToServerType::Begin => {
                 Begin {
                     transaction: eh(h, "transaction")?,
                 }
             }
-            b"COMMIT" | b"commit" => {
-                expect_keys = &[b"transaction"];
+            ToServerType::Commit => {
                 Commit {
                     transaction: eh(h, "transaction")?,
                 }
             }
-            b"ABORT" | b"abort" => {
-                expect_keys = &[b"transaction"];
+            ToServerType::Abort => {
                 Abort {
                     transaction: eh(h, "transaction")?,
                 }
             }
-            other => bail!("Frame not recognized: {:?}", String::from_utf8_lossy(other)),
         };
+
         let extra_headers = h
             .iter()
             .filter_map(|&(k, ref v)| {
-                if !expect_keys.contains(&k) {
+                if !expected_headers.contains(&k) {
                     Some((k.to_vec(), (&*v).to_vec()))
                 } else {
                     None
@@ -343,8 +334,8 @@ fn get_content_length_header(body: &[u8]) -> Vec<u8> {
     format!("content-length:{}\n", body.len()).into()
 }
 
-fn parse_heartbeat(hb: &str) -> Result<(u32, u32)> {
-    let mut split = hb.splitn(1, ',');
+fn parse_heartbeat<S: AsRef<str>>(hb: S) -> Result<(u32, u32)> {
+    let mut split = hb.as_ref().splitn(1, ',');
     let left = split.next().ok_or_else(|| format_err!("Bad heartbeat"))?;
     let right = split.next().ok_or_else(|| format_err!("Bad heartbeat"))?;
     Ok((left.parse()?, right.parse()?))
