@@ -25,8 +25,9 @@ impl<'a> Frame<'a> {
         let headers = headers
             .iter()
             // filter out headers with None value
-            .filter_map(|&(k, ref v)| v.as_ref().map(|i| (k, (&*i).clone())))
+            .filter_map(|(k, v)| v.as_ref().cloned().map(|v| (*k, v)))
             .collect();
+        
         Frame {
             command,
             headers,
@@ -107,14 +108,11 @@ named!(
 );
 
 fn get_content_length(headers: &[(&[u8], Cow<[u8]>)]) -> Option<u32> {
-    for h in headers {
-        if h.0 == b"content-length" {
-            return std::str::from_utf8(&*h.1)
-                .ok()
-                .and_then(|v| v.parse::<u32>().ok());
-        }
-    }
-    None
+    headers
+        .iter()
+        .find(|(name, _)| name == b"content-length")
+        .and_then(|(_, value)| std::str::from_utf8(value).ok())
+        .and_then(|value| value.parse().ok())
 }
 
 fn is_empty_slice(s: &[u8]) -> Option<&[u8]> {
