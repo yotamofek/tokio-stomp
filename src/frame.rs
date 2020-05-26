@@ -99,7 +99,7 @@ named!(
         take_until_either!(":\n"),
         preceded!(
             tag!(":"),
-            map!(take_until_and_consume1!("\n"), |bytes| Cow::Borrowed(
+            map!(take_until_and_consume!("\n"), |bytes| Cow::Borrowed(
                 strip_cr(bytes)
             ))
         )
@@ -494,6 +494,7 @@ passcode:password\n\n\x00"
 destination:datafeeds.here.co.uk
 message-id:12345
 subscription:some-id
+empty-header:
 "
         .to_vec();
         let body = "this body contains \x00 nulls \n and \r\n newlines \x00 OK?";
@@ -505,6 +506,7 @@ subscription:some-id
             (&b"destination"[..], &b"datafeeds.here.co.uk"[..]),
             (b"message-id", b"12345"),
             (b"subscription", b"some-id"),
+            (b"empty-header", b""),
             (b"content-length", b"50"),
         ];
         let fh: Vec<_> = frame.headers.iter().map(|&(k, ref v)| (k, &**v)).collect();
